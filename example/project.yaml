@@ -1,0 +1,4 @@
+stage: {}
+targets:
+  - name: "Bubble sort"
+    entry: "./sort.fuse"
