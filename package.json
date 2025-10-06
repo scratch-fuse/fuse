@@ -30,9 +30,9 @@
   "license": "MPL-2.0",
   "author": "FurryR",
   "type": "commonjs",
-  "main": "bin/index.js",
+  "main": "bin/compiler.js",
   "bin": {
-    "fuse": "./bin/index.js"
+    "fuse": "./bin/compiler.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

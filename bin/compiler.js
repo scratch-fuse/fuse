@@ -14,13 +14,13 @@ const {
   Compiler,
   getProgramInfo,
   Scope,
+  mergeNamespace
 } = require('@scratch-fuse/compiler')
 const {
   uid,
   serializeScript,
   serializeFunction,
-  mergeWorkspaces,
-  mergeNamespace
+  mergeWorkspaces
 } = require('@scratch-fuse/serializer')
 const Builtins = require('@scratch-fuse/builtins')
 
@@ -242,7 +242,7 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
     }
   }
   const combinedVariables = new Map([
-    ...Array.from(stageVariables.entries()).map(v => [v[0], v[1][0]]),
+    ...(stageVariables ? Array.from(stageVariables.entries()).map(v => [v[0], v[1][0]]) : []),
     ...Array.from(variables.entries()).map(v => [v[0], v[1][0]])
   ])
   const globalScope = new Scope(combinedVariables)
