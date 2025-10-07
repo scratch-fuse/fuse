@@ -32,7 +32,8 @@
   "type": "commonjs",
   "main": "bin/compiler.js",
   "bin": {
-    "fuse": "./bin/compiler.js"
+    "fuse": "./bin/compiler.js",
+    "fuse-decompiler": "./bin/decompiler.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

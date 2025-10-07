@@ -27,7 +27,7 @@ const Builtins = require('@scratch-fuse/builtins')
 const jszip = require('jszip')
 
 if (process.argv.length < 3) {
-  console.error('Usage: node script-compiler.js <input-file> <output-file>')
+  console.error('Usage: node fuse.js <input-file> <output-file>')
   process.exit(1)
 }
 

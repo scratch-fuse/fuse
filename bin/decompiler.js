@@ -28,7 +28,7 @@ function md5(input) {
 }
 
 if (process.argv.length < 3) {
-  console.error('Usage: node decompiler.js <input-sb3-file> <output-directory>')
+  console.error('Usage: node fuse-decompiler.js <input-sb3-file> <output-directory>')
   process.exit(1)
 }
 
@@ -279,7 +279,7 @@ async function decompileStage(stageTarget, namespaces, globalVariables, globalVa
         const funcDecl = decompiler.decompileFunction(func)
         astNodes.push(funcDecl)
       } catch (error) {
-        console.log(`    ⚠ Warning: Could not decompile function ${func.decl.name.name}: ${error.message}`)
+        console.log(`    ⚠ Warning: Could not decompile function ${func.proccode}: ${error.stack}`)
       }
     }
     
@@ -334,7 +334,7 @@ async function decompileStage(stageTarget, namespaces, globalVariables, globalVa
     return sourceCode
     
   } catch (error) {
-    console.error(`  ✗ Error decompiling stage: ${error.message}`)
+    console.error(`  ✗ Error decompiling stage: ${error.stack}`)
     console.error(error.stack)
     return null
   }
@@ -355,6 +355,10 @@ async function decompileTarget(target, namespaces, globalVariables, usedNames) {
     
     // Parse sprite's local variables
     for (const [id, [name, value]] of Object.entries(target.variables || {})) {
+      if (localVars.has(name)) {
+        console.log(`    ⚠ Warning: Variable name conflict for '${name}', skipping local variable`)
+        continue
+      }
       const variable = {
         type: 'variable',
         name: name,
@@ -404,7 +408,7 @@ async function decompileTarget(target, namespaces, globalVariables, usedNames) {
         const funcDecl = decompiler.decompileFunction(func)
         astNodes.push(funcDecl)
       } catch (error) {
-        console.log(`    ⚠ Warning: Could not decompile function ${func.decl.name.name}: ${error.message}`)
+        console.log(`    ⚠ Warning: Could not decompile function ${func.proccode}: ${error.stack}`)
       }
     }
     
@@ -462,7 +466,7 @@ async function decompileTarget(target, namespaces, globalVariables, usedNames) {
     return sourceCode
     
   } catch (error) {
-    console.error(`  ✗ Error decompiling target: ${error.message}`)
+    console.error(`  ✗ Error decompiling target: ${error.stack}`)
     console.error(error.stack)
     return null
   }
