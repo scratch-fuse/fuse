@@ -175,12 +175,17 @@ function processTypes(paths) {
     const fullPath = path.isAbsolute(typePath)
       ? typePath
       : path.join(inputDir, typePath)
-    const typeFuse = fs.readFileSync(fullPath, 'utf-8')
-    const lexer = new Lexer(typeFuse)
-    const parser = new Parser(lexer)
-    const ast = parser.parse()
-    const programInfo = getProgramInfo(ast)
-    namespaces = mergeNamespaces(namespaces, programInfo.namespaces)
+    try {
+      const typeFuse = fs.readFileSync(fullPath, 'utf-8')
+      const lexer = new Lexer(typeFuse)
+      const parser = new Parser(lexer)
+      const ast = parser.parse()
+      const programInfo = getProgramInfo(ast)
+      namespaces = mergeNamespaces(namespaces, programInfo.namespaces)
+    } catch (error) {
+      console.error(`Error compiling type file: ${fullPath}`)
+      throw error
+    }
   }
   return namespaces
 }
@@ -215,48 +220,53 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
   }
   
   const fullPath = path.isAbsolute(entry) ? entry : path.join(inputDir, entry)
-  const sourceCode = fs.readFileSync(fullPath, 'utf-8')
-  const lexer = new Lexer(sourceCode)
-  const tokens = lexer.all()
-  const parser = new Parser(tokens)
-  const program = parser.parse()
-  const programInfo = getProgramInfo(program)
-  const localNamespaceDefinition = mergeNamespaces(
-    baseNamespaceDefinition,
-    programInfo.namespaces
-  )
-  if (!stageVariables) {
-    for (const variable of programInfo.variables.values()) {
-      variable[0].isGlobal = true
+  
+  try {
+    const sourceCode = fs.readFileSync(fullPath, 'utf-8')
+    const lexer = new Lexer(sourceCode)
+    const parser = new Parser(lexer)
+    const program = parser.parse()
+    const programInfo = getProgramInfo(program)
+    const localNamespaceDefinition = mergeNamespaces(
+      baseNamespaceDefinition,
+      programInfo.namespaces
+    )
+    if (!stageVariables) {
+      for (const variable of programInfo.variables.values()) {
+        variable[0].isGlobal = true
+      }
     }
-  }
-  for (const [id, [variable, defaultValue]] of programInfo.variables.entries()) {
-    if (stageVariables) {
-      if (variable.isGlobal) {
-        stageVariables.set(id, [variable, defaultValue])
+    for (const [id, [variable, defaultValue]] of programInfo.variables.entries()) {
+      if (stageVariables) {
+        if (variable.isGlobal) {
+          stageVariables.set(id, [variable, defaultValue])
+        } else {
+          variables.set(id, [variable, defaultValue])
+        }
       } else {
         variables.set(id, [variable, defaultValue])
       }
-    } else {
-      variables.set(id, [variable, defaultValue])
     }
+    const combinedVariables = new Map([
+      ...(stageVariables ? Array.from(stageVariables.entries()).map(v => [v[0], v[1][0]]) : []),
+      ...Array.from(variables.entries()).map(v => [v[0], v[1][0]])
+    ])
+    const globalScope = new Scope(combinedVariables)
+    const funcs = Compiler.getFunctions(globalScope, program)
+    const compiler = new Compiler(
+      globalScope,
+      funcs,
+      localNamespaceDefinition,
+    )
+    const workspace = mergeWorkspaces(
+      ...Array.from(funcs.values()).map(f => serializeFunction(compiler.parse(f))),
+      ...compiler.parse(program).map(s => serializeScript(s))
+    )
+    return workspace
+  } catch (error) {
+    console.error(`Error compiling script file: ${fullPath}`)
+    throw error
   }
-  const combinedVariables = new Map([
-    ...(stageVariables ? Array.from(stageVariables.entries()).map(v => [v[0], v[1][0]]) : []),
-    ...Array.from(variables.entries()).map(v => [v[0], v[1][0]])
-  ])
-  const globalScope = new Scope(combinedVariables)
-  const funcs = Compiler.getFunctions(globalScope, program)
-  const compiler = new Compiler(
-    globalScope,
-    funcs,
-    localNamespaceDefinition,
-  )
-  const workspace = mergeWorkspaces(
-    ...Array.from(funcs.values()).map(f => serializeFunction(compiler.parse(f))),
-    ...compiler.parse(program).map(s => serializeScript(s))
-  )
-  return workspace
 }
 
 ;(async () => {
@@ -279,6 +289,8 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
 
   const stageVariables = new Map()
   const stage = inputJson.stage
+  
+  console.log('Compiling stage...')
   const stageWorkspace = compileScript(
     stage.entry,
     baseNamespaceDefinition,
@@ -287,6 +299,7 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
   )
 
   const targets = inputJson.targets.map(target => {
+    console.log(`Compiling sprite: ${target.name}`)
     const spriteVariables = new Map()
     const spriteWorkspace = compileScript(
       target.entry,

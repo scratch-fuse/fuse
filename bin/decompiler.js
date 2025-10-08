@@ -98,28 +98,28 @@ const outputDir = process.argv[3]
   
   // Step 5.1: Collect global variables from stage
   console.log('Collecting global variables from Stage...')
-  const globalVariables = new Map()
+  const globalVariables = []
   const globalVariableDeclarations = []
   
-  for (const [id, [name, value]] of Object.entries(stageTarget.variables || {})) {
+  for (const [name, value] of Object.values(stageTarget.variables || {})) {
     const variable = {
-      type: 'variable',
+      type: 'scalar',
       name: name,
       isGlobal: true,
       exportName: null
     }
-    globalVariables.set(name, variable)
+    globalVariables.push(variable)
     globalVariableDeclarations.push([variable, value])
   }
   
-  for (const [id, [name, value]] of Object.entries(stageTarget.lists || {})) {
+  for (const [name, value] of Object.values(stageTarget.lists || {})) {
     const variable = {
       type: 'list',
       name: name,
       isGlobal: true,
       exportName: null
     }
-    globalVariables.set(name, variable)
+    globalVariables.push(variable)
     globalVariableDeclarations.push([variable, value])
   }
   
@@ -252,17 +252,16 @@ const outputDir = process.argv[3]
 async function decompileStage(stageTarget, namespaces, globalVariables, globalVariableDeclarations, usedNames) {
   try {
     
-    const globalScope = new Scope(globalVariables)
-    
     // Step 2: Deserialize blocks to IR (if any)
     const workspace = stageTarget.blocks || {}
-    const scripts = deserializeAllScripts(workspace, globalScope)
-    const functions = deserializeAllFunctions(workspace, globalScope)
+    const scripts = deserializeAllScripts(workspace)
+    const functions = deserializeAllFunctions(workspace)
     
     console.log(`    Found ${scripts.length} scripts and ${functions.length} functions`)
     
     // Step 3: Create decompiler
-    const decompiler = createDecompiler(globalScope, namespaces, functions, usedNames)
+    // const globalScope = new Scope(globalVariables)
+    const decompiler = createDecompiler(globalVariables, namespaces, functions, usedNames)
     
     // Step 4: Decompile to AST
     const astNodes = []
@@ -350,48 +349,48 @@ async function decompileStage(stageTarget, namespaces, globalVariables, globalVa
 async function decompileTarget(target, namespaces, globalVariables, usedNames) {
   try {
     // Step 1: Collect local variables from the sprite
-    const localVars = new Map(globalVariables.entries())
+    const localVars = []
     const variableDeclarations = []
     
     // Parse sprite's local variables
-    for (const [id, [name, value]] of Object.entries(target.variables || {})) {
-      if (localVars.has(name)) {
-        console.log(`    ⚠ Warning: Variable name conflict for '${name}', skipping local variable`)
-        continue
-      }
+    for (const [name, value] of Object.values(target.variables || {})) {
+      // if (localVars.has(name)) {
+      //   console.log(`    ⚠ Warning: Variable name conflict for '${name}', skipping local variable`)
+      //   continue
+      // }
       const variable = {
-        type: 'variable',
+        type: 'scalar',
         name: name,
         isGlobal: false,
         exportName: null
       }
-      localVars.set(name, variable)
+      localVars.push(variable)
       variableDeclarations.push([variable, value])
     }
     
-    for (const [id, [name, value]] of Object.entries(target.lists || {})) {
+    for (const [name, value] of Object.values(target.lists || {})) {
       const variable = {
         type: 'list',
         name: name,
         isGlobal: false,
         exportName: null
       }
-      localVars.set(name, variable)
+      localVars.push(variable)
       variableDeclarations.push([variable, value])
     }
     
     // Step 2: Create scope with global + local variables
-    const globalScope = new Scope(localVars)
+    // const globalScope = new Scope(localVars)
     
     // Step 3: Deserialize blocks to IR
     const workspace = target.blocks
-    const scripts = deserializeAllScripts(workspace, globalScope)
-    const functions = deserializeAllFunctions(workspace, globalScope)
+    const scripts = deserializeAllScripts(workspace)
+    const functions = deserializeAllFunctions(workspace)
     
     console.log(`    Found ${scripts.length} scripts and ${functions.length} functions`)
     
     // Step 4: Create decompiler
-    const decompiler = createDecompiler(globalScope, namespaces, functions, usedNames)
+    const decompiler = createDecompiler(localVars, namespaces, functions, usedNames)
     
     // Step 5: Decompile to AST
     const astNodes = []
