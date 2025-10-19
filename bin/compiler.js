@@ -6,15 +6,13 @@ const yaml = require('yaml')
 const jsonschema = require('jsonschema')
 const forge = require('node-forge')
 // Import compiled modules
+const { Lexer, Parser } = require('@scratch-fuse/core')
 const {
-  Lexer,
-  Parser,
-} = require('@scratch-fuse/core')
-const {
-  Compiler,
-  getProgramInfo,
+  Context,
   Scope,
-  mergeNamespace
+  flattenFunctions,
+  flattenVariables,
+  mergeModule
 } = require('@scratch-fuse/compiler')
 const {
   uid,
@@ -43,6 +41,9 @@ const schema = {
     types: {
       type: 'array',
       items: { type: 'string' }
+    },
+    root: {
+      type: 'string'
     },
     extensions: {
       type: 'array',
@@ -134,7 +135,8 @@ function md5Bytes(data) {
 }
 
 // 空 SVG 资源
-const EMPTY_SVG = '<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><rect width="1" height="1" fill="transparent"/></svg>'
+const EMPTY_SVG =
+  '<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><rect width="1" height="1" fill="transparent"/></svg>'
 
 const validator = new jsonschema.Validator()
 
@@ -148,29 +150,31 @@ if (!validationResult.valid) {
   process.exit(1)
 }
 
+const root = inputJson.root ? path.resolve(inputJson.root) : path.resolve('/')
+
 /**
  *
- * @param {Map<string, Namespace>} base
- * @param {Map<string, Namespace>} upper
+ * @param {Map<string, ModuleInfo>} base
+ * @param {Map<string, ModuleInfo>} upper
  */
-function mergeNamespaces(base, upper) {
+function mergeModules(base, upper) {
   const merged = new Map(base)
-  for (const [name, namespace] of upper.entries()) {
+  for (const [name, module] of upper.entries()) {
     if (merged.has(name)) {
       const existing = merged.get(name)
-      merged.set(name, mergeNamespace(new Map(existing), namespace))
+      mergeModule(existing, module, 0, 0)
     } else {
-      merged.set(name, namespace)
+      merged.set(name, module)
     }
   }
   return merged
 }
 
-function processTypes(paths) {
+async function processTypes(paths) {
   /**
-   * @type {Map<string, import('../dist/index.d.ts').Namespace>}
+   * @type {Map<string, import('@scratch-fuse/compiler').ModuleInfo>}
    */
-  const namespaces = new Map(Builtins.Sb3Namespaces)
+  let modules = new Map(Builtins.Sb3Modules)
   for (const typePath of paths) {
     const fullPath = path.isAbsolute(typePath)
       ? typePath
@@ -180,87 +184,165 @@ function processTypes(paths) {
       const lexer = new Lexer(typeFuse)
       const parser = new Parser(lexer)
       const ast = parser.parse()
-      const programInfo = getProgramInfo(ast)
-      namespaces = mergeNamespaces(namespaces, programInfo.namespaces)
+
+      /** @type {import('@scratch-fuse/compiler').ModuleInfo} */
+      const module = {
+        name: '',
+        parent: null,
+        functions: new Map(),
+        variables: new Map(),
+        externs: new Map(),
+        children: modules
+      }
+
+      const context = new Context(module, {
+        importResolver: {
+          resolve: importResolver
+        }
+      })
+      await context.compile(ast)
+      // modules = mergeModules(modules, result.modules)
     } catch (error) {
       console.error(`Error compiling type file: ${fullPath}`)
       throw error
     }
   }
-  return namespaces
+  return modules
 }
 
-function processVariable(variable) {
-  const scratchId = uid()
-  return {
-    [scratchId]: [
-      variable.exportName ?? variable.name,
-      variable.type === 'list' ? [] : 0
-    ]
-  }
-}
+// function processVariable(variable) {
+//   const scratchId = uid()
+//   return {
+//     [scratchId]: [
+//       variable.exportName ?? variable.name,
+//       variable.type === 'list' ? [] : 0
+//     ]
+//   }
+// }
+// /**
+//  *
+//  * @param {Map<string, import('../dist/index.d.ts').Variable>} variableMap
+//  * @returns {Record<string, [string, string | number | boolean | (string | number | boolean)[]]>}
+//  */
+// function processVariables(variableMap) {
+//   const processed = {}
+//   for (const [, [variable, defaultValue]] of variableMap) {
+//     Object.assign(processed, processVariable(variable))
+//   }
+//   return processed
+// }
+
 /**
  *
- * @param {Map<string, import('../dist/index.d.ts').Variable>} variableMap
- * @returns {Record<string, [string, string | number | boolean | (string | number | boolean)[]]>}
+ * @param {string} importPath
+ * @param {string} currentFile
+ * @return {Promise<Promise<import('@scratch-fuse/core').Program>}
  */
-function processVariables(variableMap) {
-  const processed = {}
-  for (const [, [variable, defaultValue]] of variableMap) {
-    Object.assign(processed, processVariable(variable))
+async function importResolver(importPath, currentFile) {
+  // First detect if it starts with ./ or ../, if true use relative path
+  // Next check if it's absolute path, if yes, first check root/${importPath}, then check importPath directly
+  // Finally, throw error if not found
+  const relPathRegex = /^\.{1,2}\//
+  const absPathRegex = /^\//
+
+  let resolvedPath = null
+
+  if (relPathRegex.test(importPath)) {
+    resolvedPath = path.resolve(path.dirname(currentFile), importPath)
+    if (fs.existsSync(resolvedPath)) {
+      const source = fs.readFileSync(resolvedPath, 'utf-8')
+      const lexer = new Lexer(source)
+      const parser = new Parser(lexer)
+      return parser.parse()
+    }
+  } else if (absPathRegex.test(importPath)) {
+    // Try root/importPath first
+    let rootPath = path.join(root, importPath)
+    if (fs.existsSync(rootPath)) {
+      const source = fs.readFileSync(rootPath, 'utf-8')
+      const lexer = new Lexer(source)
+      const parser = new Parser(lexer)
+      return parser.parse()
+    }
+    // Try importPath directly
+    if (fs.existsSync(importPath)) {
+      const source = fs.readFileSync(importPath, 'utf-8')
+      const lexer = new Lexer(source)
+      const parser = new Parser(lexer)
+      return parser.parse()
+    }
   }
-  return processed
+
+  throw new Error(`Cannot resolve import: ${importPath} from ${currentFile}`)
 }
 
-
-function compileScript(entry, baseNamespaceDefinition, stageVariables, variables) {
+async function compileScript(
+  entry,
+  baseModuleDefinition,
+  stageVariables,
+  variables
+) {
   // 如果没有 entry，返回空 workspace
   if (!entry) {
     return {}
   }
-  
+
   const fullPath = path.isAbsolute(entry) ? entry : path.join(inputDir, entry)
-  
+
   try {
     const sourceCode = fs.readFileSync(fullPath, 'utf-8')
     const lexer = new Lexer(sourceCode)
     const parser = new Parser(lexer)
     const program = parser.parse()
-    const programInfo = getProgramInfo(program)
-    const localNamespaceDefinition = mergeNamespaces(
-      baseNamespaceDefinition,
-      programInfo.namespaces
-    )
-    if (!stageVariables) {
-      for (const variable of programInfo.variables.values()) {
-        variable[0].isGlobal = true
-      }
-    }
-    for (const [id, [variable, defaultValue]] of programInfo.variables.entries()) {
-      if (stageVariables) {
-        if (variable.isGlobal) {
-          stageVariables.set(id, [variable, defaultValue])
-        } else {
-          variables.set(id, [variable, defaultValue])
-        }
-      } else {
-        variables.set(id, [variable, defaultValue])
-      }
-    }
+
     const combinedVariables = new Map([
-      ...(stageVariables ? Array.from(stageVariables.entries()).map(v => [v[0], v[1][0]]) : []),
-      ...Array.from(variables.entries()).map(v => [v[0], v[1][0]])
+      ...(stageVariables
+        ? Array.from(stageVariables.entries()).map(v => [
+            v[0],
+            [v[1][0], v[1][1]]
+          ])
+        : []),
+      ...Array.from(variables.entries()).map(v => [v[0], [v[1][0], v[1][1]]])
     ])
-    const globalScope = new Scope(combinedVariables)
-    const funcs = Compiler.getFunctions(globalScope, program)
-    const compiler = new Compiler(
-      globalScope,
-      funcs,
-      localNamespaceDefinition,
-    )
+
+    /** @type {import('@scratch-fuse/compiler').ModuleInfo} */
+    const module = {
+      name: '',
+      parent: null,
+      functions: new Map(),
+      variables: combinedVariables,
+      externs: new Map(),
+      children: structuredClone(baseModuleDefinition),
+      filename: fullPath
+    }
+
+    const context = new Context(module, {
+      importResolver: {
+        resolve: importResolver
+      }
+    })
+
+    const result = await context.compile(program)
+
+    // 从 compile 结果中获取 variables
+    if (!stageVariables) {
+      for (const [variable, defaultValue] of result.variables.values()) {
+        variable.isGlobal = true
+        variables.set(variable.name, [variable, defaultValue])
+      }
+    } else {
+      for (const [variable, defaultValue] of result.variables.values()) {
+        if (variable.isGlobal) {
+          stageVariables.set(variable.name, [variable, defaultValue])
+        } else {
+          variables.set(variable.name, [variable, defaultValue])
+        }
+      }
+    }
+
     const workspace = mergeWorkspaces(
-      ...Array.from(funcs.values()).map(f => serializeFunction(compiler.parse(f))),
-      ...compiler.parse(program).map(s => serializeScript(s))
+      ...result.functions.map(f => serializeFunction(f)),
+      ...result.scripts.map(s => serializeScript(s))
     )
     return workspace
   } catch (error) {
@@ -272,9 +354,12 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
 ;(async () => {
   const zip = jszip()
   // process
-  const baseNamespaceDefinition = inputJson.types
-    ? processTypes(inputJson.types)
-    : Builtins.Sb3Namespaces
+  const baseModuleDefinition = inputJson.types
+    ? mergeModules(
+        new Map(Builtins.Sb3Modules),
+        await processTypes(inputJson.types)
+      )
+    : new Map(Builtins.Sb3Modules)
   const projectJson = {
     targets: [],
     monitors: [],
@@ -289,26 +374,31 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
 
   const stageVariables = new Map()
   const stage = inputJson.stage
-  
+
   console.log('Compiling stage...')
-  const stageWorkspace = compileScript(
+  const stageWorkspace = await compileScript(
     stage.entry,
-    baseNamespaceDefinition,
+    baseModuleDefinition,
     null,
     stageVariables
   )
 
-  const targets = inputJson.targets.map(target => {
+  const targets = []
+  for (const target of inputJson.targets) {
     console.log(`Compiling sprite: ${target.name}`)
     const spriteVariables = new Map()
-    const spriteWorkspace = compileScript(
+    const spriteWorkspace = await compileScript(
       target.entry,
-      baseNamespaceDefinition,
+      baseModuleDefinition,
       stageVariables,
       spriteVariables
     )
-    return { target, workspace: spriteWorkspace, variables: spriteVariables }
-  })
+    targets.push({
+      target,
+      workspace: spriteWorkspace,
+      variables: spriteVariables
+    })
+  }
 
   // 创建空 SVG 资源
   function createEmptyAsset() {
@@ -364,7 +454,7 @@ function compileScript(entry, baseNamespaceDefinition, stageVariables, variables
   }
 
   // 处理 stage 变量
-  for (const [id, [variable, defaultValue]] of stageVariables.entries()) {
+  for (const [variable, defaultValue] of stageVariables.values()) {
     const scratchId = uid()
     if (variable.type === 'list') {
       stageTarget.lists[scratchId] = [

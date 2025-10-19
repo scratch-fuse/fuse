@@ -1,0 +1,53 @@
+module test {
+  global array = []
+  global idx = 1
+
+  @export("initialize") fn initialize() once -> void {
+    startTimestamp = 0
+    array.clear()
+    idx = 1
+    while (idx <= 10000) {
+      array.push(math.random(1, 10000))
+      idx++
+    }
+    idx = 1
+  }
+
+  global n = 0
+  global i = 0
+  global j = 0
+  global temp = 0
+
+  @export("start sort") fn sort() once -> void {
+    // Sort the array using bubble sort
+    n = array.length
+    for (i = 1; i <= n; i++) {
+      for (j = 1; j <= n - i + 1; j++) {
+        if (array[j - 1] > array[j]) {
+          // Swap array[j-1] and array[j]
+          temp = array[j - 1]
+          array[j - 1] = array[j]
+          array[j] = temp
+        }
+      }
+    }
+  }
+
+  @export("current timestamp") fn current_timestamp() once -> any {
+    return sensing.daysSince2000() * 86400
+  }
+
+  @export("warmup") fn warmup() once -> void {
+    initialize()
+    sort()
+  }
+
+  global startTimestamp = 0
+
+  fn test() once -> void {
+    initialize()
+    startTimestamp = current_timestamp()
+    sort()
+    looks.say("Sorting took " .. (current_timestamp() - startTimestamp) .. " seconds")
+  }
+}
