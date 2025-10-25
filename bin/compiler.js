@@ -253,7 +253,10 @@ async function importResolver(importPath, currentFile) {
       const source = fs.readFileSync(resolvedPath, 'utf-8')
       const lexer = new Lexer(source)
       const parser = new Parser(lexer)
-      return parser.parse()
+      return {
+        program: parser.parse(),
+        filename: resolvedPath
+      }
     }
   } else if (absPathRegex.test(importPath)) {
     // Try root/importPath first
@@ -262,14 +265,20 @@ async function importResolver(importPath, currentFile) {
       const source = fs.readFileSync(rootPath, 'utf-8')
       const lexer = new Lexer(source)
       const parser = new Parser(lexer)
-      return parser.parse()
+      return {
+        program: parser.parse(),
+        filename: resolvedPath
+      }
     }
     // Try importPath directly
     if (fs.existsSync(importPath)) {
       const source = fs.readFileSync(importPath, 'utf-8')
       const lexer = new Lexer(source)
       const parser = new Parser(lexer)
-      return parser.parse()
+      return {
+        program: parser.parse(),
+        filename: resolvedPath
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 // Bubble sort implementation for performance testing
 
+import "./test2.fuse"
 import "./test.fuse"
 
 fn main() once -> void {

@@ -1,3 +1,5 @@
+import './test2.fuse'
+
 module test {
   global array = []
   global idx = 1
@@ -6,8 +8,8 @@ module test {
     startTimestamp = 0
     array.clear()
     idx = 1
-    while (idx <= 10000) {
-      array.push(math.random(1, 10000))
+    while (idx <= CAPACITY) {
+      array.push(math.random(1, CAPACITY))
       idx++
     }
     idx = 1
